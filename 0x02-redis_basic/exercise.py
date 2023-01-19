@@ -1,229 +1,167 @@
 #!/usr/bin/env python3
 
-
+""" Exercise module. """
 
 from typing import Callable, Optional, Union
 
-from uuid import uuid4
+from functools import wraps
 
 import redis
 
-from functools import wraps
+import uuid
 
 
 
-'''
 
-    Writing strings to Redis.
 
-    '''
+def count_calls(method: Callable) -> Callable:
 
+        """ count_calls decorator. """
 
+            @wraps(method)
 
+                def count_calls_wrapper(self, *args, **kwargs) -> bytes:
 
+                            """ count_calls wrapper. """
 
-    def count_calls(method: Callable) -> Callable:
+                                    self._redis.incr(method.__qualname__)
 
-            '''
+                                            return method(self, *args, **kwargs)
 
-                    Counts the number of times a method is called.
 
-                        '''
 
+                                            return count_calls_wrapper
 
 
-                            @wraps(method)
 
-                                def wrapper(self, *args, **kwargs):
 
-                                            '''
 
-                                                        Wrapper function.
+                                        def call_history(method: Callable) -> Callable:
 
-                                                                '''
+                                                """ call_history decorator. """
 
-                                                                        key = method.__qualname__
+                                                    inputs = f"{method.__qualname__}:inputs"
 
-                                                                                self._redis.incr(key)
+                                                        outputs = f"{method.__qualname__}:outputs"
 
-                                                                                        return method(self, *args, **kwargs)
 
-                                                                                        return wrapper
 
+                                                            @wraps(method)
 
+                                                                def call_history_wrapper(self, *args, **kwargs) -> bytes:
 
+                                                                            """ call_history wrapper. """
 
+                                                                                    self._redis.rpush(inputs, str(args))
 
-                                                                                    def call_history(method: Callable) -> Callable:
+                                                                                            output = method(self, *args, **kwargs)
 
-                                                                                            """ Decorator to store the history of inputs and
+                                                                                                    self._redis.rpush(outputs, output)
 
-                                                                                                outputs for a particular function.
 
-                                                                                                    """
 
-                                                                                                        key = method.__qualname__
+                                                                                                            return output
 
-                                                                                                            inputs = key + ":inputs"
 
-                                                                                                                outputs = key + ":outputs"
 
+                                                                                                            return call_history_wrapper
 
 
-                                                                                                                    @wraps(method)
 
-                                                                                                                        def wrapper(self, *args, **kwargs):  # sourcery skip: avoid-builtin-shadow
 
-                                                                                                                                    """ Wrapper for decorator functionality """
 
-                                                                                                                                            self._redis.rpush(inputs, str(args))
+                                                                                                        def replay(method: Callable):
 
-                                                                                                                                                    data = method(self, *args, **kwargs)
+                                                                                                                """ Replay the calls of a specific method """
 
-                                                                                                                                                            self._redis.rpush(outputs, str(data))
+                                                                                                                    m_name = method.__qualname__
 
-                                                                                                                                                                    return data
+                                                                                                                        inputs = f"{m_name}:inputs"
 
+                                                                                                                            outputs = f"{m_name}:outputs"
 
+                                                                                                                                r = redis.Redis()
 
-                                                                                                                                                                    return wrapper
 
 
+                                                                                                                                    data = r.get(m_name).decode("utf-8")
 
+                                                                                                                                        inputs_list = r.lrange(inputs, 0, -1)
 
+                                                                                                                                            outputs_list = r.lrange(outputs, 0, -1)
 
-                                                                                                                                                                def replay(method: Callable) -> None:
 
-                                                                                                                                                                        # sourcery skip: use-fstring-for-concatenation, use-fstring-for-formatting
 
-                                                                                                                                                                            """
+                                                                                                                                                print(f"{m_name} was called {data} times:")
 
-                                                                                                                                                                                Replays the history of a function
 
-                                                                                                                                                                                    Args:
 
-                                                                                                                                                                                            method: The function to be decorated
+                                                                                                                                                    for k, v in zip(inputs_list, outputs_list):
 
-                                                                                                                                                                                                Returns:
+                                                                                                                                                                print(f"{m_name}(*{k.decode('utf-8')}) -> {v.decode('utf-8')}")
 
-                                                                                                                                                                                                        None
 
-                                                                                                                                                                                                            """
 
-                                                                                                                                                                                                                name = method.__qualname__
 
-                                                                                                                                                                                                                    cache = redis.Redis()
 
-                                                                                                                                                                                                                        calls = cache.get(name).decode("utf-8")
+                                                                                                                                                                class Cache():
 
-                                                                                                                                                                                                                            print("{} was called {} times:".format(name, calls))
+                                                                                                                                                                        """ Cache class. """
 
-                                                                                                                                                                                                                                inputs = cache.lrange(name + ":inputs", 0, -1)
 
-                                                                                                                                                                                                                                    outputs = cache.lrange(name + ":outputs", 0, -1)
 
-                                                                                                                                                                                                                                        for i, o in zip(inputs, outputs):
+                                                                                                                                                                            def __init__(self) -> None:
 
-                                                                                                                                                                                                                                                    print("{}(*{}) -> {}".format(name, i.decode('utf-8'),
+                                                                                                                                                                                        self._redis = redis.Redis()
 
-                                                                                                                                                                                                                                                                                             o.decode('utf-8')))
+                                                                                                                                                                                                self._redis.flushdb()
 
 
 
+                                                                                                                                                                                                    @count_calls
 
+                                                                                                                                                                                                        @call_history
 
-                                                                                                                                                                                                                                                    class Cache:
+                                                                                                                                                                                                            def store(self, data: Union[str, bytes, int, float]) -> str:
 
-                                                                                                                                                                                                                                                            '''
+                                                                                                                                                                                                                        """ Store the input data and return the random key. """
 
-                                                                                                                                                                                                                                                                    Cache class.
+                                                                                                                                                                                                                                key = str(uuid.uuid4())
 
-                                                                                                                                                                                                                                                                        '''
+                                                                                                                                                                                                                                        self._redis.set(key, data)
 
-                                                                                                                                                                                                                                                                            def __init__(self):
 
-                                                                                                                                                                                                                                                                                        '''
 
-                                                                                                                                                                                                                                                                                                    Initialize the cache.
+                                                                                                                                                                                                                                                return key
 
-                                                                                                                                                                                                                                                                                                            '''
 
-                                                                                                                                                                                                                                                                                                                    self._redis = redis.Redis()
 
-                                                                                                                                                                                                                                                                                                                            self._redis.flushdb()
+                                                                                                                                                                                                                                                def get(self, key: str, *fn: Optional[Callable]) -> Union[str, bytes, int, float]:
 
+                                                                                                                                                                                                                                                            """ Convert the data back to the desired format. """
 
+                                                                                                                                                                                                                                                                    if fn:
 
-                                                                                                                                                                                                                                                                                                                                @count_calls
+                                                                                                                                                                                                                                                                                    data = self._redis.get(key)
 
-                                                                                                                                                                                                                                                                                                                                    @call_history
+                                                                                                                                                                                                                                                                                                return fn(data)
 
-                                                                                                                                                                                                                                                                                                                                        def store(self, data: Union[str, bytes, int, float]) -> str:
 
-                                                                                                                                                                                                                                                                                                                                                    '''
 
-                                                                                                                                                                                                                                                                                                                                                                Store data in the cache.
+                                                                                                                                                                                                                                                                                                    return self._redis.get(key)
 
-                                                                                                                                                                                                                                                                                                                                                                        '''
 
-                                                                                                                                                                                                                                                                                                                                                                                randomKey = str(uuid4())
 
-                                                                                                                                                                                                                                                                                                                                                                                        self._redis.set(randomKey, data)
+                                                                                                                                                                                                                                                                                                    def get_str(self, key: str) -> str:
 
-                                                                                                                                                                                                                                                                                                                                                                                                return randomKey
+                                                                                                                                                                                                                                                                                                                """ Converts the key to a str. """
 
+                                                                                                                                                                                                                                                                                                                        return self.get(key, str)
 
 
-                                                                                                                                                                                                                                                                                                                                                                                                def get(self, key: str,
 
-                                                                                                                                                                                                                                                                                                                                                                                                                    fn: Optional[Callable] = None) -> Union[str, bytes, int, float]:
+                                                                                                                                                                                                                                                                                                                        def get_int(self, key: str) -> int:
 
-                                                                                                                                                                                                                                                                                                                                                                                                            '''
+                                                                                                                                                                                                                                                                                                                                    """ Converts the key to an int. """
 
-                                                                                                                                                                                                                                                                                                                                                                                                                        Get data from the cache.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                '''
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                        value = self._redis.get(key)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                if fn:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                value = fn(value)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                        return value
-
-
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                        def get_str(self, key: str) -> str:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    '''
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                Get a string from the cache.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        '''
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                value = self._redis.get(key)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        return value.decode('utf-8')
-
-
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        def get_int(self, key: str) -> int:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    '''
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                Get an int from the cache.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        '''
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                value = self._redis.get(key)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        try:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        value = int(value.decode('utf-8'))
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                except Exception:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                value = 0
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  return value
+                                                                                                                                                                                                                                                                                                                                            return self.get(key, int)
